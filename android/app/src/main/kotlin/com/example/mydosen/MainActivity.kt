@@ -1,4 +1,4 @@
-package com.example.mydosen
+package com.unsri.mydosen
 
 import io.flutter.embedding.android.FlutterActivity
 
