@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/entities/lecturer_location.dart';
+import '../mappers/location_presentation.dart';
 
 class LocationInfoCard extends StatelessWidget {
   final LecturerLocation location;
@@ -11,53 +12,19 @@ class LocationInfoCard extends StatelessWidget {
     required this.location,
   });
 
-  IconData get _locationIcon {
-    if (location.location.contains('Indralaya')) {
-      return Icons.school_rounded;
-    } else if (location.location.contains('Palembang')) {
-      return Icons.business_rounded;
-    }
-    return Icons.explore_rounded;
-  }
+  LocationPresentation get _presentation =>
+      LocationPresentation.fromLocationString(location.location);
 
-  Color get _locationColor {
-    if (location.location.contains('Indralaya')) {
-      return AppTheme.locationIndralaya;
-    } else if (location.location.contains('Palembang')) {
-      return AppTheme.locationPalembang;
-    }
-    return AppTheme.locationOutside;
-  }
-
-  LinearGradient get _locationGradient {
-    if (location.location.contains('Indralaya')) {
-      return LinearGradient(
+  IconData get _locationIcon => _presentation.icon;
+  Color get _locationColor => _presentation.color;
+  LinearGradient get _locationGradient => LinearGradient(
         colors: [
-          AppTheme.locationIndralaya,
-          AppTheme.locationIndralaya.withValues(alpha: 0.7),
+          _presentation.color,
+          _presentation.color.withValues(alpha: 0.7)
         ],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       );
-    } else if (location.location.contains('Palembang')) {
-      return LinearGradient(
-        colors: [
-          AppTheme.locationPalembang,
-          AppTheme.locationPalembang.withValues(alpha: 0.7),
-        ],
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-      );
-    }
-    return LinearGradient(
-      colors: [
-        AppTheme.locationOutside,
-        AppTheme.locationOutside.withValues(alpha: 0.7),
-      ],
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-    );
-  }
 
   @override
   Widget build(BuildContext context) {

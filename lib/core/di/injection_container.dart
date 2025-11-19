@@ -5,6 +5,7 @@ import '../../features/lecturer_location/data/repositories/lecturer_location_rep
 import '../../features/lecturer_location/domain/repositories/lecturer_location_repository.dart';
 import '../../features/lecturer_location/domain/usecases/get_lecturer_location.dart';
 import '../../features/lecturer_location/presentation/bloc/lecturer_location_bloc.dart';
+import '../../features/lecturer_location/presentation/bloc/map_cubit.dart';
 import '../network/api_endpoints.dart';
 import '../theme/theme_bloc.dart';
 import '../theme/theme_local_data_source.dart';
@@ -19,6 +20,9 @@ Future<void> init() async {
       getLecturerLocation: sl(),
     ),
   );
+
+  // Map presentation cubit
+  sl.registerFactory<MapCubit>(() => MapCubit());
 
   // SharedPreferences
   final sharedPreferences = await SharedPreferences.getInstance();
