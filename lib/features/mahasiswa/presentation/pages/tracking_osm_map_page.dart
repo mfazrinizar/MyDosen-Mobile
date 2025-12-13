@@ -29,7 +29,8 @@ class TrackingOsmMapPage extends StatefulWidget {
   State<TrackingOsmMapPage> createState() => _TrackingOsmMapPageState();
 }
 
-class _TrackingOsmMapPageState extends State<TrackingOsmMapPage> {
+class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
+    with RouteAware {
   late SocketService _socketService;
   MapController? _mapController;
 
@@ -44,6 +45,7 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage> {
   DateTime? _lastUpdated;
   bool _isConnected = false;
   bool _isMapReady = false;
+  bool _isDisposing = false;
 
   @override
   void initState() {
@@ -132,10 +134,12 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage> {
     });
 
     _dosenStatusSubscription = _socketService.onDosenStatus.listen((update) {
-      if (mounted && update.dosenId == widget.dosenId) {
-        setState(() {
-          _isOnline = update.isOnline;
-        });
+      if (mounted && !_isDisposing && update.dosenId == widget.dosenId) {
+        if (mounted) {
+          setState(() {
+            _isOnline = update.isOnline;
+          });
+        }
         // Update marker color when status changes
         if (_isMapReady &&
             _currentLatitude != null &&
@@ -149,7 +153,8 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage> {
   Future<void> _updateMarker(double? oldLat, double? oldLng) async {
     if (_currentLatitude == null ||
         _currentLongitude == null ||
-        _mapController == null) {
+        _mapController == null ||
+        _isDisposing) {
       return;
     }
 
@@ -168,10 +173,10 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage> {
           longitude: _currentLongitude!,
         ),
         markerIcon: MarkerIcon(
-          icon: Icon(
+          iconWidget: Icon(
             Icons.location_on,
             color: _isOnline ? Colors.green : AppTheme.primaryOrange,
-            size: 56,
+            size: 108,
           ),
         ),
       );
@@ -219,11 +224,13 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage> {
 
   @override
   void dispose() {
+    _isDisposing = true;
+    _mapController?.dispose();
+    _mapController = null;
     _dosenMovedSubscription?.cancel();
     _dosenStatusSubscription?.cancel();
     _connectionStatusSubscription?.cancel();
     _socketService.leaveDosenRoom(widget.dosenId);
-    _mapController?.dispose();
     super.dispose();
   }
 
@@ -359,10 +366,10 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage> {
                     longitude: _currentLongitude!,
                   ),
                   markerIcon: MarkerIcon(
-                    icon: Icon(
+                    iconWidget: Icon(
                       Icons.location_on,
                       color: _isOnline ? Colors.green : AppTheme.primaryOrange,
-                      size: 56,
+                      size: 108,
                     ),
                   ),
                 );

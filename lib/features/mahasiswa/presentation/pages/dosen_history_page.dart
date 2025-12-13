@@ -38,7 +38,7 @@ class _DosenHistoryPageState extends State<DosenHistoryPage> {
     return Scaffold(
       appBar: AppBar(
         title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             const Text(
               'Riwayat Lokasi',
@@ -48,7 +48,7 @@ class _DosenHistoryPageState extends State<DosenHistoryPage> {
               widget.dosenName,
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.grey[300],
+                color: Colors.grey,
               ),
             ),
           ],

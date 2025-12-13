@@ -39,7 +39,7 @@ class MapCubit extends Cubit<MapState> {
       await mapController.addMarker(
         target.point,
         markerIcon: MarkerIcon(
-          icon: Icon(Icons.location_on, color: target.color, size: 56),
+          icon: Icon(Icons.location_on, color: target.color, size: 108),
         ),
       );
 

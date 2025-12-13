@@ -3,7 +3,6 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_osm_plugin/flutter_osm_plugin.dart';
 import 'package:geolocator/geolocator.dart';
-import '../../../../core/navigation/app_router.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/services/socket_service.dart';
 import '../../../../core/services/location_service.dart';
@@ -41,6 +40,8 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
   StreamSubscription? _dosenStatusSubscription;
   StreamSubscription? _locationSubscription;
   StreamSubscription? _connectionStatusSubscription;
+
+  bool _isDisposing = false;
 
   // Dosen (destination) location
   double _dosenLatitude = 0;
@@ -171,7 +172,7 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
       _updateDistance();
     });
 
-    if (_isMapReady && _mapController != null) {
+    if (_isMapReady && _mapController != null && !_isDisposing) {
       // Remove old marker
       if (_dosenMarkerAdded) {
         try {
@@ -188,7 +189,7 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
   }
 
   Future<void> _updateDosenMarker() async {
-    if (!_isMapReady || _mapController == null) return;
+    if (!_isMapReady || _mapController == null || _isDisposing) return;
 
     // Remove and re-add marker with new color
     if (_dosenMarkerAdded) {
@@ -202,16 +203,16 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
   }
 
   Future<void> _addDosenMarker() async {
-    if (_mapController == null) return;
+    if (_mapController == null || _isDisposing) return;
 
     try {
       await _mapController!.addMarker(
         GeoPoint(latitude: _dosenLatitude, longitude: _dosenLongitude),
         markerIcon: MarkerIcon(
-          icon: Icon(
+          iconWidget: Icon(
             Icons.location_on,
             color: _dosenIsOnline ? Colors.green : AppTheme.primaryOrange,
-            size: 56,
+            size: 108,
           ),
         ),
       );
@@ -224,18 +225,19 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
   Future<void> _addUserMarker() async {
     if (_userLatitude == null ||
         _userLongitude == null ||
-        _mapController == null) {
+        _mapController == null ||
+        _isDisposing) {
       return;
     }
 
     try {
       await _mapController!.addMarker(
         GeoPoint(latitude: _userLatitude!, longitude: _userLongitude!),
-        markerIcon: const MarkerIcon(
-          icon: Icon(
-            Icons.navigation,
+        markerIcon: MarkerIcon(
+          iconWidget: Icon(
+            Icons.navigation_rounded,
             color: Colors.blue,
-            size: 48,
+            size: 108,
           ),
         ),
       );
@@ -291,7 +293,7 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
           });
 
           // Update user marker
-          if (_isMapReady && _mapController != null) {
+          if (_isMapReady && _mapController != null && !_isDisposing) {
             // Remove old marker
             if (_userMarkerAdded && oldLat != null && oldLng != null) {
               try {
@@ -302,7 +304,6 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
             }
 
             await _addUserMarker();
-            await _drawRouteLine();
 
             // Auto-center on user if following
             if (_isFollowingUser && _mapController != null) {
@@ -322,27 +323,33 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
     if (_userLatitude == null ||
         _userLongitude == null ||
         !_isMapReady ||
-        _mapController == null) {
+        _mapController == null ||
+        _isDisposing) {
       return;
     }
 
+    // Temporarily disabled to prevent crashes
     try {
       // Clear existing roads
       await _mapController!.clearAllRoads();
+    } catch (e) {
+      if (!_isDisposing) debugPrint('Error clearing roads: $e');
+    }
 
+    try {
       // Draw a simple line between user and dosen
       await _mapController!.drawRoad(
         GeoPoint(latitude: _userLatitude!, longitude: _userLongitude!),
         GeoPoint(latitude: _dosenLatitude, longitude: _dosenLongitude),
-        roadType: RoadType.foot,
+        roadType: RoadType.car,
         roadOption: const RoadOption(
-          roadWidth: 10,
+          roadWidth: 25,
           roadColor: AppTheme.primaryOrange,
           zoomInto: false,
         ),
       );
     } catch (e) {
-      debugPrint('Error drawing route: $e');
+      if (!_isDisposing) debugPrint('Error drawing route: $e');
     }
   }
 
@@ -418,13 +425,15 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
 
   @override
   void dispose() {
+    _isDisposing = true;
+    _locationSubscription?.cancel();
     _dosenMovedSubscription?.cancel();
     _dosenStatusSubscription?.cancel();
-    _locationSubscription?.cancel();
     _connectionStatusSubscription?.cancel();
     _locationService.stopTracking();
-    _socketService.leaveDosenRoom(widget.dosenId);
+    // _socketService.leaveDosenRoom(widget.dosenId);
     _mapController?.dispose();
+    _mapController = null;
     super.dispose();
   }
 
@@ -472,105 +481,98 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
             ),
         ],
       ),
-      body: PopScope(
-        onPopInvokedWithResult: (didPop, result) {
-          Navigator.pushNamedAndRemoveUntil(
-              context, AppRoutes.mahasiswaHome, (route) => false);
-        },
-        canPop: false,
-        child: Stack(
-          children: [
-            if (_mapController == null)
-              const Center(
-                child: CircularProgressIndicator(color: AppTheme.primaryOrange),
-              )
-            else
-              OSMFlutter(
-                controller: _mapController!,
-                onMapIsReady: (isReady) async {
-                  if (isReady && !_isMapReady) {
-                    setState(() => _isMapReady = true);
+      body: Stack(
+        children: [
+          if (_mapController == null)
+            const Center(
+              child: CircularProgressIndicator(color: AppTheme.primaryOrange),
+            )
+          else
+            OSMFlutter(
+              controller: _mapController!,
+              onMapIsReady: (isReady) async {
+                if (isReady && !_isMapReady) {
+                  setState(() => _isMapReady = true);
 
-                    // Add markers
-                    await _addDosenMarker();
-                    if (_userLatitude != null && _userLongitude != null) {
-                      await _addUserMarker();
-                      await _drawRouteLine();
-                      // Fit both markers
-                      Future.delayed(
-                        const Duration(milliseconds: 500),
-                        _fitBothMarkers,
-                      );
-                    }
+                  // Add markers
+                  await _addDosenMarker();
+                  if (_userLatitude != null && _userLongitude != null) {
+                    await _addUserMarker();
+                    await _drawRouteLine();
+                    // Fit both markers
+                    Future.delayed(
+                      const Duration(milliseconds: 500),
+                      _fitBothMarkers,
+                    );
                   }
-                },
-                osmOption: OSMOption(
-                  zoomOption: const ZoomOption(
-                    initZoom: 15,
-                    minZoomLevel: 3,
-                    maxZoomLevel: 19,
-                    stepZoom: 1.0,
-                  ),
-                  showDefaultInfoWindow: false,
-                  enableRotationByGesture: true,
+                }
+              },
+              osmOption: OSMOption(
+                zoomOption: const ZoomOption(
+                  initZoom: 15,
+                  minZoomLevel: 3,
+                  maxZoomLevel: 19,
+                  stepZoom: 1.0,
                 ),
-                mapIsLoading: Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: AppTheme.primaryOrange.withValues(alpha: 0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                              AppTheme.primaryOrange),
-                          strokeWidth: 3,
-                        ),
+                showDefaultInfoWindow: false,
+                enableRotationByGesture: true,
+              ),
+              mapIsLoading: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: AppTheme.primaryOrange.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
                       ),
-                      const SizedBox(height: 20),
-                      const Text(
-                        'Memuat peta...',
-                        style: TextStyle(
-                          color: AppTheme.primaryOrange,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 16,
-                        ),
+                      child: const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                            AppTheme.primaryOrange),
+                        strokeWidth: 3,
                       ),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'Memuat peta...',
+                      style: TextStyle(
+                        color: AppTheme.primaryOrange,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            // Connection status banner
-            if (!_isConnected)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: Container(
-                  color: Colors.orange,
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.cloud_off, size: 16, color: Colors.white),
-                      SizedBox(width: 8),
-                      Text(
-                        'Tidak terhubung - Menunggu koneksi...',
-                        style: TextStyle(color: Colors.white, fontSize: 12),
-                      ),
-                    ],
-                  ),
+            ),
+          // Connection status banner
+          if (!_isConnected)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: Container(
+                color: Colors.orange,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.cloud_off, size: 16, color: Colors.white),
+                    SizedBox(width: 8),
+                    Text(
+                      'Tidak terhubung - Menunggu koneksi...',
+                      style: TextStyle(color: Colors.white, fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
-            // Info card
-            _buildInfoCard(),
-            // Control buttons
-            _buildControlButtons(isDark),
-          ],
-        ),
+            ),
+          // Info card
+          _buildInfoCard(),
+          // Control buttons
+          _buildControlButtons(isDark),
+        ],
       ),
     );
   }
