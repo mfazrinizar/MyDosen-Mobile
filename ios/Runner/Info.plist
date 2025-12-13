@@ -45,5 +45,27 @@
 		<true />
 		<key>UIApplicationSupportsIndirectInputEvents</key>
 		<true />
+		<!-- Location permissions -->
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>MyDosen memerlukan akses lokasi untuk menampilkan lokasi Anda kepada mahasiswa yang
+			diizinkan.</string>
+		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+		<string>MyDosen memerlukan akses lokasi latar belakang untuk terus melacak lokasi Anda
+			bahkan saat aplikasi ditutup.</string>
+		<key>NSLocationAlwaysUsageDescription</key>
+		<string>MyDosen memerlukan akses lokasi latar belakang untuk terus melacak lokasi Anda
+			bahkan saat aplikasi ditutup.</string>
+		<!-- Background modes -->
+		<key>UIBackgroundModes</key>
+		<array>
+			<string>location</string>
+			<string>fetch</string>
+			<string>processing</string>
+		</array>
+		<!-- Background task identifier -->
+		<key>BGTaskSchedulerPermittedIdentifiers</key>
+		<array>
+			<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		</array>
 	</dict>
 </plist>
