@@ -45,3 +45,6 @@ app.*.map.json
 /android/app/release
 
 .env
+
+*.md
+!README.md
