@@ -131,7 +131,7 @@ class _MahasiswaHomePageState extends State<MahasiswaHomePage>
     return BlocListener<AuthBloc, AuthState>(
       listener: (context, state) {
         if (state is LogoutSuccess || state is Unauthenticated) {
-          Navigator.of(context).pushNamed(AppRoutes.login);
+          Navigator.of(context).pushReplacementNamed(AppRoutes.login);
         }
       },
       child: Scaffold(

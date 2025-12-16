@@ -47,6 +47,17 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
   bool _isMapReady = false;
   bool _isDisposing = false;
 
+  // Track marker position for reliable removal
+  GeoPoint? _lastMarkerPosition;
+
+  // Helper to round coordinates to avoid floating point precision issues
+  GeoPoint _roundedGeoPoint(double lat, double lng) {
+    return GeoPoint(
+      latitude: double.parse(lat.toStringAsFixed(6)),
+      longitude: double.parse(lng.toStringAsFixed(6)),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -75,6 +86,53 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
             )
           : GeoPoint(latitude: -2.9761, longitude: 104.7754), // Default UNSRI
     );
+  }
+
+  /// Refreshes the marker by removing all possible duplicates and adding fresh one
+  Future<void> _refreshMarker() async {
+    if (_currentLatitude == null ||
+        _currentLongitude == null ||
+        _mapController == null ||
+        _isDisposing ||
+        !_isMapReady) {
+      return;
+    }
+
+    try {
+      // Try to remove tracked marker position
+      if (_lastMarkerPosition != null) {
+        try {
+          await _mapController!.removeMarker(_lastMarkerPosition!);
+        } catch (_) {}
+        _lastMarkerPosition = null;
+      }
+
+      // Also try to remove at current position (in case of duplicates)
+      final currentPos =
+          _roundedGeoPoint(_currentLatitude!, _currentLongitude!);
+      for (int i = 0; i < 5; i++) {
+        try {
+          await _mapController!.removeMarker(currentPos);
+        } catch (_) {
+          break;
+        }
+      }
+
+      // Add fresh marker
+      await _mapController!.addMarker(
+        currentPos,
+        markerIcon: MarkerIcon(
+          iconWidget: Icon(
+            Icons.location_on,
+            color: _isOnline ? Colors.green : AppTheme.primaryOrange,
+            size: 108,
+          ),
+        ),
+      );
+      _lastMarkerPosition = currentPos;
+    } catch (e) {
+      debugPrint('Error refreshing marker: $e');
+    }
   }
 
   void _initializeSocket() async {
@@ -159,19 +217,19 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
     }
 
     try {
-      // Remove old marker if exists
-      if (oldLat != null && oldLng != null) {
-        await _mapController!.removeMarker(
-          GeoPoint(latitude: oldLat, longitude: oldLng),
-        );
+      // Remove marker using tracked position
+      if (_lastMarkerPosition != null) {
+        await _mapController!.removeMarker(_lastMarkerPosition!);
+        _lastMarkerPosition = null;
       }
+
+      // Create new marker position
+      final newPosition =
+          _roundedGeoPoint(_currentLatitude!, _currentLongitude!);
 
       // Add new marker
       await _mapController!.addMarker(
-        GeoPoint(
-          latitude: _currentLatitude!,
-          longitude: _currentLongitude!,
-        ),
+        newPosition,
         markerIcon: MarkerIcon(
           iconWidget: Icon(
             Icons.location_on,
@@ -180,6 +238,9 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
           ),
         ),
       );
+
+      // Track the new marker position
+      _lastMarkerPosition = newPosition;
 
       // Center map on new location
       await _mapController!.moveTo(
@@ -232,6 +293,14 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
     _connectionStatusSubscription?.cancel();
     _socketService.leaveDosenRoom(widget.dosenId);
     super.dispose();
+  }
+
+  /// Called when a route has been popped off and this route is now visible
+  void _onReturnFromNavigation() {
+    // Refresh marker when returning from navigation page
+    if (_isMapReady && !_isDisposing) {
+      _refreshMarker();
+    }
   }
 
   @override
@@ -358,13 +427,13 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
                 _isMapReady = true;
               });
 
-              // Add initial marker
+              // Reset marker tracking and add initial marker
               if (_currentLatitude != null && _currentLongitude != null) {
+                _lastMarkerPosition = null;
+                final newPosition =
+                    _roundedGeoPoint(_currentLatitude!, _currentLongitude!);
                 await _mapController!.addMarker(
-                  GeoPoint(
-                    latitude: _currentLatitude!,
-                    longitude: _currentLongitude!,
-                  ),
+                  newPosition,
                   markerIcon: MarkerIcon(
                     iconWidget: Icon(
                       Icons.location_on,
@@ -373,6 +442,7 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
                     ),
                   ),
                 );
+                _lastMarkerPosition = newPosition;
               }
             }
           },
@@ -461,8 +531,8 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
               const SizedBox(height: 8),
               _buildControlButton(
                 icon: Icons.navigation,
-                onPressed: () {
-                  Navigator.pushNamed(
+                onPressed: () async {
+                  await Navigator.pushNamed(
                     context,
                     AppRoutes.navigationMap,
                     arguments: {
@@ -474,6 +544,8 @@ class _TrackingOsmMapPageState extends State<TrackingOsmMapPage>
                       'isOnline': _isOnline,
                     },
                   );
+                  // Refresh marker when returning from navigation
+                  _onReturnFromNavigation();
                 },
                 tooltip: 'Navigasi',
                 isDark: isDark,

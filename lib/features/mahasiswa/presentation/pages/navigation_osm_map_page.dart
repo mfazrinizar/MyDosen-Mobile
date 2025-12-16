@@ -62,9 +62,17 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
   // Distance
   double _distanceToDestination = 0;
 
-  // Track if markers have been added
-  bool _userMarkerAdded = false;
-  bool _dosenMarkerAdded = false;
+  // Track marker positions for reliable removal
+  GeoPoint? _lastDosenMarkerPosition;
+  GeoPoint? _lastUserMarkerPosition;
+
+  // Helper to round coordinates to avoid floating point precision issues
+  GeoPoint _roundedGeoPoint(double lat, double lng) {
+    return GeoPoint(
+      latitude: double.parse(lat.toStringAsFixed(6)),
+      longitude: double.parse(lng.toStringAsFixed(6)),
+    );
+  }
 
   @override
   void initState() {
@@ -161,9 +169,6 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
     String positionName,
     String lastUpdated,
   ) async {
-    final oldLat = _dosenLatitude;
-    final oldLng = _dosenLongitude;
-
     setState(() {
       _dosenLatitude = lat;
       _dosenLongitude = lng;
@@ -173,13 +178,12 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
     });
 
     if (_isMapReady && _mapController != null && !_isDisposing) {
-      // Remove old marker
-      if (_dosenMarkerAdded) {
+      // Remove old dosen marker using tracked position
+      if (_lastDosenMarkerPosition != null) {
         try {
-          await _mapController!.removeMarker(
-            GeoPoint(latitude: oldLat, longitude: oldLng),
-          );
+          await _mapController!.removeMarker(_lastDosenMarkerPosition!);
         } catch (_) {}
+        _lastDosenMarkerPosition = null;
       }
 
       // Add new marker
@@ -191,13 +195,12 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
   Future<void> _updateDosenMarker() async {
     if (!_isMapReady || _mapController == null || _isDisposing) return;
 
-    // Remove and re-add marker with new color
-    if (_dosenMarkerAdded) {
+    // Remove old marker using tracked position
+    if (_lastDosenMarkerPosition != null) {
       try {
-        await _mapController!.removeMarker(
-          GeoPoint(latitude: _dosenLatitude, longitude: _dosenLongitude),
-        );
+        await _mapController!.removeMarker(_lastDosenMarkerPosition!);
       } catch (_) {}
+      _lastDosenMarkerPosition = null;
     }
     await _addDosenMarker();
   }
@@ -205,9 +208,18 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
   Future<void> _addDosenMarker() async {
     if (_mapController == null || _isDisposing) return;
 
+    final geoPoint = _roundedGeoPoint(_dosenLatitude, _dosenLongitude);
+
+    // Remove any existing marker at this position first
+    if (_lastDosenMarkerPosition != null) {
+      try {
+        await _mapController!.removeMarker(_lastDosenMarkerPosition!);
+      } catch (_) {}
+    }
+
     try {
       await _mapController!.addMarker(
-        GeoPoint(latitude: _dosenLatitude, longitude: _dosenLongitude),
+        geoPoint,
         markerIcon: MarkerIcon(
           iconWidget: Icon(
             Icons.location_on,
@@ -216,7 +228,7 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
           ),
         ),
       );
-      _dosenMarkerAdded = true;
+      _lastDosenMarkerPosition = geoPoint;
     } catch (e) {
       debugPrint('Error adding dosen marker: $e');
     }
@@ -230,9 +242,18 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
       return;
     }
 
+    final geoPoint = _roundedGeoPoint(_userLatitude!, _userLongitude!);
+
+    // Remove any existing marker at old position first
+    if (_lastUserMarkerPosition != null) {
+      try {
+        await _mapController!.removeMarker(_lastUserMarkerPosition!);
+      } catch (_) {}
+    }
+
     try {
       await _mapController!.addMarker(
-        GeoPoint(latitude: _userLatitude!, longitude: _userLongitude!),
+        geoPoint,
         markerIcon: MarkerIcon(
           iconWidget: Icon(
             Icons.navigation_rounded,
@@ -241,7 +262,7 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
           ),
         ),
       );
-      _userMarkerAdded = true;
+      _lastUserMarkerPosition = geoPoint;
     } catch (e) {
       debugPrint('Error adding user marker: $e');
     }
@@ -269,6 +290,12 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
         _userLongitude = position.longitude;
         _updateDistance();
       });
+
+      // Draw initial route if map is ready
+      if (_isMapReady && _mapController != null && !_isDisposing) {
+        await _addUserMarker();
+        await _drawRouteLine();
+      }
     }
 
     // Start continuous tracking
@@ -281,41 +308,46 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
       setState(() => _isTracking = true);
 
       _locationSubscription =
-          _locationService.onLocationUpdate.listen((position) async {
-        if (mounted) {
-          final oldLat = _userLatitude;
-          final oldLng = _userLongitude;
-
+          _locationService.onLocationUpdate.listen((position) {
+        if (mounted && !_isDisposing) {
           setState(() {
             _userLatitude = position.latitude;
             _userLongitude = position.longitude;
             _updateDistance();
           });
 
-          // Update user marker
-          if (_isMapReady && _mapController != null && !_isDisposing) {
-            // Remove old marker
-            if (_userMarkerAdded && oldLat != null && oldLng != null) {
-              try {
-                await _mapController!.removeMarker(
-                  GeoPoint(latitude: oldLat, longitude: oldLng),
-                );
-              } catch (_) {}
-            }
-
-            await _addUserMarker();
-
-            // Auto-center on user if following
-            if (_isFollowingUser && _mapController != null) {
-              await _mapController!.moveTo(
-                GeoPoint(
-                    latitude: position.latitude, longitude: position.longitude),
-                animate: true,
-              );
-            }
-          }
+          // Update user marker and route
+          _updateUserLocationOnMap(position);
         }
       });
+    }
+  }
+
+  /// Updates user marker and redraws route when location changes
+  Future<void> _updateUserLocationOnMap(Position position) async {
+    if (!_isMapReady || _mapController == null || _isDisposing) return;
+
+    // Remove old user marker using tracked position
+    if (_lastUserMarkerPosition != null) {
+      try {
+        await _mapController!.removeMarker(_lastUserMarkerPosition!);
+      } catch (_) {}
+      _lastUserMarkerPosition = null;
+    }
+
+    await _addUserMarker();
+
+    // Redraw route with new user position
+    await _drawRouteLine();
+
+    // Auto-center on user if following
+    if (_isFollowingUser && _mapController != null && !_isDisposing) {
+      try {
+        await _mapController!.moveTo(
+          GeoPoint(latitude: position.latitude, longitude: position.longitude),
+          animate: true,
+        );
+      } catch (_) {}
     }
   }
 
@@ -328,19 +360,17 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
       return;
     }
 
-    // Temporarily disabled to prevent crashes
     try {
-      // Clear existing roads
+      // Clear existing roads first
       await _mapController!.clearAllRoads();
-    } catch (e) {
-      if (!_isDisposing) debugPrint('Error clearing roads: $e');
-    }
 
-    try {
-      // Draw a simple line between user and dosen
+      // Draw road from user to dosen using rounded coordinates
+      final userPoint = _roundedGeoPoint(_userLatitude!, _userLongitude!);
+      final dosenPoint = _roundedGeoPoint(_dosenLatitude, _dosenLongitude);
+
       await _mapController!.drawRoad(
-        GeoPoint(latitude: _userLatitude!, longitude: _userLongitude!),
-        GeoPoint(latitude: _dosenLatitude, longitude: _dosenLongitude),
+        userPoint,
+        dosenPoint,
         roadType: RoadType.car,
         roadOption: const RoadOption(
           roadWidth: 25,
@@ -431,7 +461,20 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
     _dosenStatusSubscription?.cancel();
     _connectionStatusSubscription?.cancel();
     _locationService.stopTracking();
-    // _socketService.leaveDosenRoom(widget.dosenId);
+
+    // Clear all markers before disposing to prevent duplicates on parent page
+    if (_mapController != null) {
+      try {
+        if (_lastDosenMarkerPosition != null) {
+          _mapController!.removeMarker(_lastDosenMarkerPosition!);
+        }
+        if (_lastUserMarkerPosition != null) {
+          _mapController!.removeMarker(_lastUserMarkerPosition!);
+        }
+        _mapController!.clearAllRoads();
+      } catch (_) {}
+    }
+
     _mapController?.dispose();
     _mapController = null;
     super.dispose();
@@ -493,6 +536,10 @@ class _NavigationOsmMapPageState extends State<NavigationOsmMapPage> {
               onMapIsReady: (isReady) async {
                 if (isReady && !_isMapReady) {
                   setState(() => _isMapReady = true);
+
+                  // Reset marker tracking
+                  _lastDosenMarkerPosition = null;
+                  _lastUserMarkerPosition = null;
 
                   // Add markers
                   await _addDosenMarker();
